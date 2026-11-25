@@ -1,0 +1,6 @@
+.strata/
+.strata-kit-build/
+__pycache__/
+*.pyc
+node_modules/
+out/
