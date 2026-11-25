@@ -1,0 +1,177 @@
+/* page.js: boots the railway yard. The feed client, HUD, labels, picking and
+   wire come from the agentviz kit (agentviz-*.js); this file wires them to
+   the yard model (railway-model.js), packs frames (railway-frame.js) and owns
+   the camera. */
+(function () {
+  "use strict";
+  const {Yard, layout} = window.Railway;
+  const REASON = {question: "has a question", permission: "needs permission"};
+  const DEFAULT_YAW = 1.9, DEFAULT_PITCH = 0.72;
+  const canvas = document.getElementById("view");
+  const yard = new Yard();
+  const wire = AgentvizWire.create();
+  const labels = AgentvizScreen.labels(document.getElementById("labels"));
+  let kit = null, mod = null, feed = null, selectedId = null, hoveredId = null, camAnim = null, fitted = false;
+  let sceneTime = 0, lastT = 0;
+
+  /* ------------------------------------------------------------ camera */
+  function fitView() {
+    const target = layout(yard.doc);
+    const x0 = -9, x1 = target.xEnd, depth = target.zEnd + 12;
+    const span = Math.max(x1 - x0, depth * 1.9);
+    const aspect = canvas.clientWidth / Math.max(1, canvas.clientHeight);
+    return {tx: (x0 + x1) / 2, ty: 0, tz: target.zEnd * 0.55 + 2, yaw: DEFAULT_YAW, pitch: DEFAULT_PITCH,
+      dist: span * (aspect < 1 ? 1.0 / aspect : 0.62)};
+  }
+  function fit(instant) {
+    if (!kit || !yard.places.size) return;
+    const view = fitView();
+    kit.limits.maxDist = Math.max(kit.limits.maxDist || 0, view.dist * 1.5);
+    flyTo(view, instant);
+  }
+  function flyTo(to, instant) {
+    if (instant || kit.driven) { Object.assign(kit.cam, to); camAnim = null; return; }
+    camAnim = {from: Object.assign({}, kit.cam), to, t0: performance.now(), ms: 700};
+  }
+  function stepCam() {
+    if (!camAnim) return;
+    const k = Math.min(1, (performance.now() - camAnim.t0) / camAnim.ms), e = AgentvizFeed.smoothstep(k);
+    for (const key of Object.keys(camAnim.to)) kit.cam[key] = AgentvizFeed.lerp(camAnim.from[key], camAnim.to[key], e);
+    if (k >= 1) camAnim = null;
+  }
+  function focusOn(tr) { flyTo({tx: tr.x, ty: 0, tz: tr.z, dist: Math.min(kit.cam.dist, 26)}); }
+
+  /* ------------------------------------------------------------ labels */
+  function sessionLabels(tr, items) {
+    const s = tr.session, waiting = s.state === "waiting", offline = s.state === "offline";
+    const text = waiting ? "\u{1F514} " + (s.name || s.id) + " " + (REASON[s.waitingReason] || "needs you") : s.name || s.id;
+    const el = labels.set("s:" + tr.id, {cls: "name" + (waiting ? " waiting" : "") + (offline ? " offline" : ""),
+      state: s.stalled ? "stalled" : s.state, action: s.state === "busy" ? s.action : null, text});
+    items.push({el, q: kit.project(tr.x - 0.5, waiting ? 6.2 : 3.1, tr.z), rank: waiting || tr.id === selectedId ? 0 : 1});
+    if (s.branch && !offline) {
+      const plate = labels.set("b:" + tr.id, {cls: "branch", text: s.branch});
+      items.push({el: plate, q: kit.project(tr.x - 2.5, 0.9, tr.z + 0.65), rank: 2});
+    }
+  }
+  // The lane name sits at the siding's buffer stop; a subagent on its own
+  // branch (a worktree lane) carries its own brass plate.
+  function followerLabels(tr, items) {
+    const f = tr.follower, resting = f.state !== "active";
+    const el = labels.set("f:" + tr.id, {cls: "lane" + (resting ? " resting" : "") + (f.stalled ? " stalled" : ""),
+      state: f.stalled ? "stalled" : null, action: resting ? "none" : f.action, text: f.label || f.id});
+    items.push({el, q: kit.project(tr.sidingEnd + 0.6, 0.9, tr.z), rank: tr.id === selectedId ? 0 : 2});
+    if (f.branch && f.branch !== tr.session.branch) {
+      const plate = labels.set("fb:" + tr.id, {cls: "branch", text: f.branch});
+      items.push({el: plate, q: kit.project(tr.x - 1.5 * tr.dir, 0.6, tr.z + 0.4), rank: 3});
+    }
+  }
+  function placeLabels() {
+    const items = [];
+    labels.begin();
+    for (const p of yard.places.values()) {
+      items.push({el: labels.set("p:" + p.id, {cls: "place", text: p.label}), q: kit.project(-3, 3.0, p.z - 2.2), rank: 0});
+    }
+    for (const tr of yard.trains) (tr.follower ? followerLabels : sessionLabels)(tr, items);
+    labels.end();
+    StrataKit.placeLabels(items);
+  }
+
+  /* ------------------------------------------------------------ picking + selection */
+  // Points along the engine, tender and wagon, so any part of the train taps.
+  function pick(x, y, radius) {
+    const candidates = yard.trains.map((tr) => ({item: tr,
+      points: [0, -1.2, 1.2, -2.6].map((off) => [tr.x + off * tr.scale * tr.dir, 1.2 * tr.scale, tr.z])}));
+    return AgentvizScreen.pick(kit.project, candidates, x, y, radius * 1.5);
+  }
+  const trainById = (id) => yard.trains.find((tr) => tr.id === id) || null;
+  const targetOf = (tr) => (tr ? {session: tr.session, follower: tr.follower} : null);
+  const idOf = (target) => (target ? (target.follower ? AgentvizFeed.followerKey(target.session, target.follower)
+    : target.session.id) : null);
+
+  function onSelect(target, how) {
+    selectedId = idOf(target);
+    const tr = selectedId && trainById(selectedId);
+    if (kit) kit.selected = tr || null;
+    if (tr && (how === "list" || how === "waiting")) focusOn(tr);
+  }
+
+  const hud = AgentvizHud.create({
+    title: "Railway Yard",
+    legend: document.getElementById("legend"),
+    buttons: [{icon: "home", label: "Recentre the view", onClick: () => fit(false)}],
+    onSelect,
+  });
+
+  function accept(doc) {
+    yard.update(doc);
+    if (!yard.trains.length) yard.step(0);  // first snapshot: trains exist before the first frame
+    hud.update(doc);
+    if (!fitted && yard.places.size) { fitted = true; fit(true); }
+  }
+
+  /* ------------------------------------------------------------ boot */
+  function frame(t) {
+    const dt = Math.min(kit.driven ? 1 : 0.1, Math.max(0, t - lastT));
+    lastT = sceneTime = t;
+    stepCam();
+    yard.step(dt);
+    const highlight = (id) => (id === selectedId ? 1 : id === hoveredId ? 2 : 0);
+    window.RailwayFrame.write(wire, yard, highlight, feed.pulse).send(mod);
+  }
+
+  function screenTargets() {
+    const r = canvas.getBoundingClientRect();
+    return yard.trains.map((tr) => {
+      const q = kit.project(tr.x, 1.2 * tr.scale, tr.z);
+      return q && {id: tr.id, x: q.x + r.left, y: q.y + r.top};
+    }).filter(Boolean);
+  }
+
+  function createKit() {
+    return StrataKit.create({
+      module: mod, canvas,
+      camera: {yaw: DEFAULT_YAW, pitch: DEFAULT_PITCH, dist: 90, tx: 30, ty: 0, tz: 15},
+      limits: {maxDist: 260, minDist: 5},
+      frame,
+      after: placeLabels,
+      pick,
+      idOf: (tr) => tr.id,
+      onTap: (tr) => hud.select(targetOf(tr), "tap"),
+      onHover(tr) { hoveredId = tr ? tr.id : null; canvas.style.cursor = tr ? "pointer" : ""; },
+      onSlow: () => StrataLoader.slow(),
+      onFatal: (code, msg) => StrataLoader.fallback(code, msg),
+      targets: screenTargets,
+    });
+  }
+
+  async function boot() {
+    try {
+      mod = await StrataLoader.load({script: "railway-engine.js", factory: "createRailway", wasm: "railway-engine.wasm",
+        title: "the railway yard"});
+    } catch (error) {
+      console.error("railway: the engine did not load", error);
+      return;  // StrataLoader has already shown its fallback
+    }
+    try {
+      kit = createKit();
+    } catch (error) {
+      StrataLoader.fallback(error.code === "no-webgl2" ? "no-webgl2" : "engine");
+      return;
+    }
+    // Under ?drive=1 tool-call pulses follow scene time, so captures repeat.
+    const now = () => (kit.driven ? sceneTime : Date.now() / 1000);
+    feed = AgentvizFeed.create({onUpdate: accept, onStatus: hud.setStatus, now});
+    window.__yard = yard;
+    window.__page = {kit, yard, hud, fit, flyTo,
+      select: (id, focus) => hud.select(targetOf(trainById(id)), focus ? "list" : "api"),
+      get doc() { return feed.doc; }, get polls() { return feed.polls; },
+      feedClient: feed, stopPolling: () => feed.stop(), pollOnce: () => feed.pollOnce(), feed: (d) => feed.push(d)};
+    kit.setSun(Date.UTC(2026, 5, 21, 23, 0, 0) / 1000, 40, -105);  // a fixed late afternoon
+    feed.start();
+    kit.start();
+    if (kit.driven) kit.drive(0);
+    StrataLoader.done();
+  }
+
+  boot();
+})();

@@ -3,79 +3,83 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Railway yard · agentviz</title>
+<title>Railway Yard</title>
+<link rel="stylesheet" href="agentviz-hud.css">
 <style>
-  :root { color-scheme: dark; --bg: #1b2016; --fg: #ece6d6; --panel: rgba(22, 20, 16, 0.9); --line: rgba(255, 235, 200, 0.14);
-    --green: #2bff6a; --amber: #ffa20f; --red: #ff2a1c; --brass: #d9a040; }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
-    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  /* The railway's theme for the kit's HUD (agentviz-hud.css): warm panels, signal colours,
+     red for "needs you"; then its own world labels (station boards, brass plates) and legend. */
+  :root { color-scheme: dark; --bg: #1b2016;
+    --av-fg: #ece6d6; --av-muted: #b4ab98; --av-panel: rgba(22, 20, 16, 0.9); --av-line: rgba(255, 235, 200, 0.14);
+    --av-wait: #ff2a1c; --av-wait-fg: #fff; --av-note: #ff7a6a; --av-busy: #2bff6a; --av-idle: #ffa20f;
+    --av-off: #3a3a40; --av-stall: #ff2a1c; --brass: #d9a040; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--av-fg); font: var(--av-font); }
   #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
   #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
-  .label { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; transition: opacity .2s; }
-  .label.place { font: 700 13px/1 Georgia, "Times New Roman", serif; letter-spacing: .06em; text-transform: uppercase;
+  .av-wait { animation-name: rw-throb; }
+  @keyframes rw-throb { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 42, 28, 0.7); } 50% { box-shadow: 0 0 0 9px rgba(255, 42, 28, 0); } }
+
+  .av-label.place { font: 700 13px/1 Georgia, "Times New Roman", serif; letter-spacing: .06em; text-transform: uppercase;
     background: #f1ede2; color: #1d1a14; padding: 4px 10px; border: 2px solid #1d1a14; border-radius: 2px; }
-  .label.name { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--panel); }
-  .label.name.offline { opacity: .6; }
-  .label.name.waiting { background: var(--red); color: #fff; font-size: 14px; padding: 4px 12px;
-    box-shadow: 0 0 0 3px rgba(255, 42, 28, .35); animation: pulse 1s infinite; }
-  .label.branch { font: 600 10px/1 ui-monospace, Menlo, Consolas, monospace; color: var(--brass); background: #1a1a1c;
+  .av-label.name { font-weight: 600; }
+  .av-label.offline { opacity: .6; }
+  .av-label.waiting { background: var(--av-wait); color: #fff; border-color: transparent; font-size: 14px; padding: 4px 12px;
+    font-weight: 700; animation: rw-throb 1s infinite; }
+  .av-label.waiting .av-dot { background: #fff; }
+  .av-label.branch { font: 600 10px/1 ui-monospace, Menlo, Consolas, monospace; color: var(--brass); background: #1a1a1c;
     border: 1px solid var(--brass); padding: 2px 5px; border-radius: 2px; }
-  .label.lane { font-size: 11px; color: #f1ede2; background: rgba(90, 30, 20, .85); padding: 1px 6px; border-radius: 3px; }
-  .label.lane.resting { background: rgba(120, 80, 10, .85); }
-  @keyframes pulse { 50% { box-shadow: 0 0 0 9px rgba(255, 42, 28, 0); } }
-  @media (prefers-reduced-motion: reduce) { .label.name.waiting, #needs button { animation: none; } }
+  .av-label.lane { font-size: 11px; color: #f1ede2; background: rgba(90, 30, 20, .85); border-color: transparent;
+    padding: 1px 6px 1px 4px; border-radius: 3px; }
+  .av-label.lane.resting { background: rgba(120, 80, 10, .85); }
+  .av-label.lane.stalled { background: rgba(170, 20, 10, .9); }
+  .av-label .av-ic { width: 12px; height: 12px; }
+  @media (prefers-reduced-motion: reduce) { .av-label.waiting { animation: none; } }
 
-  #needs { position: fixed; top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
-    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: calc(100% - 24px); }
-  #needs button { font: 600 15px/1 system-ui, sans-serif; color: #fff; background: var(--red); border: 0; border-radius: 999px;
-    padding: 10px 16px; cursor: pointer; animation: pulse 1s infinite; min-height: 44px; }
-  #needs .bell { display: inline-block; margin-right: 6px; animation: ring 1s infinite; }
-  @keyframes ring { 0%, 50%, 100% { transform: rotate(0); } 10%, 30% { transform: rotate(18deg); } 20%, 40% { transform: rotate(-18deg); } }
-
-  #status { position: fixed; left: max(12px, env(safe-area-inset-left)); top: max(12px, env(safe-area-inset-top));
-    font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--panel); }
-
-  #sheet { position: fixed; right: 16px; top: 16px; width: 300px; max-height: calc(100% - 32px); overflow: auto;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-sizing: border-box;
-    backdrop-filter: blur(6px); }
-  #sheet header { display: flex; align-items: center; gap: 8px; }
-  #sheet h2 { margin: 0; font-size: 17px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #sheet h3 { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; opacity: .7; }
-  #sheet .close { background: none; border: 0; color: var(--fg); font-size: 24px; line-height: 1; cursor: pointer;
-    min-width: 44px; min-height: 44px; margin: -10px -10px -10px 0; }
-  #sheet dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 10px 0 0; }
-  #sheet dt { opacity: .6; } #sheet dd { margin: 0; overflow-wrap: anywhere; }
-  #sheet code { color: var(--brass); }
-  #sheet .stall { color: var(--red); }
-  #sheet .ic { display: inline-block; width: 1.4em; }
-  #sheet ul.fl { list-style: none; margin: 0; padding: 0; }
-  #sheet ul.fl button, #sheet button.lead { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
-    background: none; border: 0; color: var(--fg); font: inherit; padding: 6px 2px; cursor: pointer; border-radius: 6px; min-height: 36px; }
-  #sheet button.lead { padding: 0; min-height: 0; text-decoration: underline; }
-  #sheet ul.fl button:hover { background: rgba(255, 255, 255, .06); }
-  .sig { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #222; border: 2px solid #000; flex: none; }
-  .sig.busy { background: var(--green); box-shadow: 0 0 8px var(--green); }
-  .sig.idle { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
-  .sig.waiting { background: var(--red); box-shadow: 0 0 10px var(--red); animation: blink .5s steps(2) infinite; }
-  .sig.dim { background: #556; }
-  @keyframes blink { 50% { opacity: .2; } }
-
-  @media (max-width: 640px) {
-    #sheet { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 55%; border-radius: 16px 16px 0 0;
-      padding-bottom: max(14px, env(safe-area-inset-bottom)); }
-    #sheet::before { content: ""; display: block; width: 40px; height: 4px; border-radius: 2px; background: var(--line);
-      margin: -4px auto 8px; }
-  }
+  .av-legend h3 { margin: 10px 0 6px; font-size: 12px; color: var(--av-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .av-legend h3:first-child { margin-top: 0; }
+  .av-legend ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+  .av-legend li { display: flex; gap: 8px; align-items: center; }
+  .sw { width: 14px; height: 14px; border-radius: 50%; flex: none; border: 2px solid #000; box-sizing: border-box; }
+  .sw.sq { border-radius: 3px; width: 22px; }
 </style>
 </head>
 <body>
 <canvas id="view" tabindex="0" role="img" aria-label="Claude Code sessions as a railway yard, drawn by Strata"></canvas>
 <div id="labels" aria-hidden="true"></div>
-<div id="needs" hidden aria-live="assertive"></div>
-<div id="status" hidden></div>
-<aside id="sheet" hidden aria-live="polite"></aside>
+<aside id="legend" hidden aria-label="What you are looking at">
+  <h3>The yard</h3>
+  <ul>
+    <li><span class="sw sq" style="background:#f1ede2"></span>Trunk line with a station board: a place (the repo)</li>
+    <li><span class="sw sq" style="background:#0d0d0f"></span>Coal heap by the station: grows with the line's tool calls</li>
+    <li><span class="sw sq" style="background:#14522a"></span>Big engine on the trunk: a session; brass plate: its git branch</li>
+    <li><span class="sw sq" style="background:#5a1e14"></span>Small engine on a siding off its lead's ladder: a subagent; lane name at the buffer stop</li>
+  </ul>
+  <h3>Signals</h3>
+  <ul>
+    <li><span class="sw" style="background:var(--av-busy)"></span>Green: busy</li>
+    <li><span class="sw" style="background:var(--av-idle)"></span>Amber: idle, or a resting subagent</li>
+    <li><span class="sw" style="background:var(--av-wait)"></span>Flashing red, bell, red beam: needs you; a "?" board for a question, a padlock for a permission prompt</li>
+    <li><span class="sw" style="background:#222"></span>Dark, engine cold and grey in the shed: offline</li>
+  </ul>
+  <h3>What it is doing</h3>
+  <ul>
+    <li><span class="sw sq" style="background:#9e7038"></span>edit: freight crates craned onto the wagon</li>
+    <li><span class="sw sq" style="background:#29292e"></span>run: dark smoke, wheels turning</li>
+    <li><span class="sw sq" style="background:#ffd35a"></span>read: an inspector walks the train with a lantern</li>
+    <li><span class="sw sq" style="background:#9ad8ff"></span>web: telegraph pole, sparks and pulses on the wires</li>
+    <li><span class="sw sq" style="background:#2bff6a"></span>delegate: levers throw, pulses run into the sidings</li>
+    <li><span class="sw sq" style="background:#f2f2f6"></span>think: slow white steam; other: whistle steam from the cab</li>
+    <li><span class="sw sq" style="background:#d9a040"></span>A whistle blast and headlamp flash: a new tool call</li>
+    <li><span class="sw sq" style="background:#d9150c"></span>Red smoke: stalled (a session busy, or a subagent quiet, for over 5 minutes)</li>
+  </ul>
+</aside>
 <script src="strata-loader.js"></script>
 <script src="strata-kit.js"></script>
-<script src="railway.js"></script>
+<script src="agentviz-feed.js"></script>
+<script src="agentviz-screen.js"></script>
+<script src="agentviz-hud.js"></script>
+<script src="agentviz-wire.js"></script>
+<script src="railway-model.js"></script>
+<script src="railway-frame.js"></script>
+<script src="page.js"></script>
 </body>
 </html>
