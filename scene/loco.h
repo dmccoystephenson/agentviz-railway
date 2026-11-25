@@ -4,6 +4,8 @@
 // (1 faces +x down the line, -1 faces back towards the trunk).
 #pragma once
 
+#include <algorithm>
+
 #include "../vendor/agentviz-kit/scene/agentviz.h"
 #include "draw_util.h"
 
@@ -40,7 +42,7 @@ inline Loco locoOf(const agentviz::Agent& a) {
 inline Rgb liveryOf(const Loco& L) {
     static const Rgb kLivery[6] = {{0.08f, 0.32f, 0.16f}, {0.42f, 0.08f, 0.08f}, {0.10f, 0.20f, 0.48f},
                                    {0.14f, 0.14f, 0.16f}, {0.05f, 0.36f, 0.38f}, {0.55f, 0.38f, 0.08f}};
-    Rgb paint = kLivery[static_cast<int>(L.seed * 6.0f) % 6];
+    Rgb paint = kLivery[std::clamp(static_cast<int>(L.seed * 6.0f), 0, 5)];
     if (L.cold()) paint = mix(scale(paint, 0.5f), {0.18f, 0.18f, 0.2f}, 0.6f);
     if (L.state == State::Dim) paint = mix(paint, {0.3f, 0.3f, 0.32f}, 0.5f);
     return paint;
