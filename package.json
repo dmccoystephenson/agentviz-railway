@@ -1,0 +1,13 @@
+{
+  "name": "agentviz-railway",
+  "private": true,
+  "description": "Browser tests for agentviz-railway (the page itself needs no build).",
+  "license": "MIT",
+  "scripts": {
+    "smoke": "node tests/smoke.cjs",
+    "screenshots": "node tests/screenshots.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.61.1"
+  }
+}

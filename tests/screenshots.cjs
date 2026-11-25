@@ -1,127 +1,114 @@
-// Regenerates every README image in docs/media/ from the FIXTURE feed:
-//   NODE_PATH=/root/arcade-watch/node_modules node tests/screenshots.cjs [name ...]
-// Frames are drawn with ?drive=1 (scene time stepped by hand), so they repeat.
-// The GIF is joined with Pillow (tests/make_gif.py).
+// Regenerates every README image in docs/media/ from the DEMO feed (never live):
+//   npm run screenshots [-- name ...]
+// Stills are drawn with ?drive=1 (the kit draws one frame on demand at a given
+// scene time), so they repeat. The GIF steps scene time frame by frame while
+// pushing two scripted changes (a subagent finishing, a new tool call) and is
+// encoded with Pillow.
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const {execFileSync} = require("child_process");
-const {ROOT, startServer, launch, open, drive, shot} = require("./harness.cjs");
+const h = require("../vendor/agentviz-kit/tests/harness.cjs");
+const screens = require("../vendor/agentviz-kit/tests/screens.cjs");
 
-const OUT = path.join(ROOT, "docs/media");
-const only = process.argv.slice(2);
-const want = (n) => !only.length || only.includes(n);
+const REPO = path.resolve(__dirname, "..");
+const MEDIA = path.join(REPO, "docs/media");
+const PORT = Number(process.env.RAILWAY_TEST_PORT || 9104);
+const READY = "window.__page && window.__page.polls > 0 && window.__yard.trains.length > 0";
+const only = new Set(process.argv.slice(2));
+const want = (name) => only.size === 0 || only.has(name);
+const DESKTOP = {viewport: {width: 1600, height: 900}};
+const PHONE = {viewport: {width: 390, height: 844}, dpr: 3, mobile: true};
 
-// Points the camera at a train (by id) or at the whole yard.
-async function aim(page, {id, yaw = 1.9, pitch = 0.62, dist = 22, dx = 0, dz = 0, select = null}) {
-  await page.evaluate(({id, yaw, pitch, dist, dx, dz, select}) => {
-    const R = window.__railway, cam = R.kit.cam;
-    if (id) {
-      const t = R.yard.frameTrains.find((tr) => tr.id === id);
-      Object.assign(cam, {tx: t.x + dx, ty: 0.8, tz: t.z + dz, yaw, pitch, dist});
-    }
-    if (select !== null) R.select(select, false);
-  }, {id, yaw, pitch, dist, dx, dz, select});
+// Camera helpers run in the page: frame a train by id, or the whole yard.
+const HELPERS = `
+window.__shots = {
+  t: 6,
+  settle() { for (let t = 0.5; t <= 6; t += 0.5) window.__page.kit.drive(t); },
+  cam(c) { Object.assign(window.__page.kit.cam, c); },
+  train(id, c) { const tr = window.__yard.trains.find((x) => x.id === id);
+    this.cam(Object.assign({tx: tr.x + (c.dx || 0), ty: 0.8, tz: tr.z + (c.dz || 0)}, c)); },
+  draw() { window.__page.kit.drive(window.__shots.t); },
+};`;
+
+async function openPage(browser, server, options) {
+  const opened = await h.open(browser, `${server.base}/?fixture=1&drive=1`, Object.assign({ready: READY}, options));
+  await h.stillAnimations(opened.page);
+  await opened.page.evaluate(() => window.__page.stopPolling());
+  await opened.page.evaluate(HELPERS);
+  await opened.page.evaluate(() => window.__shots.settle());
+  return opened;
 }
 
-async function still(page, name, t = 6) {
-  await drive(page, t - 1, t, 0.5);
-  for (let i = 1; i <= 3; i++) {  // labels settle (placeLabels hysteresis)
-    await page.waitForTimeout(450);
-    await drive(page, t + i * 0.02);
-  }
-  await shot(page, path.join(OUT, name));
-  console.log("wrote", name);
+async function shoot(page, name, setup) {
+  if (!want(name)) return;
+  await page.evaluate(setup);
+  await screens.still(page, path.join(MEDIA, name + ".png"), () => window.__shots.draw());
 }
 
-(async () => {
-  fs.mkdirSync(OUT, {recursive: true});
-  const server = await startServer();
-  const browser = await launch();
-  try {
-    const desk = await open(browser, {viewport: {width: 1600, height: 900}});
-    const page = desk.page;
-    await drive(page, 0.5, 4);
-    await page.waitForTimeout(1500);  // the loader fades out
-    if (want("hero")) {
-      await page.evaluate(() => window.__railway.fit());
-      await still(page, "hero.png");
-    }
-    if (want("angle-high")) {
-      await page.evaluate(() => { window.__railway.fit(); Object.assign(window.__railway.kit.cam, {yaw: 1.55, pitch: 1.2}); });
-      await still(page, "angle-high.png");
-    }
-    if (want("angle-low")) {
-      await page.evaluate(() => { window.__railway.fit(); const c = window.__railway.kit.cam;
-        Object.assign(c, {yaw: 2.6, pitch: 0.38, dist: c.dist * 0.6}); });
-      await still(page, "angle-low.png");
-    }
-    if (want("lead")) {
-      await aim(page, {id: "demo-lead-b", yaw: 1.75, pitch: 0.7, dist: 34, dx: 12, dz: 4});
-      await still(page, "lead-and-sidings.png");
-    }
-    if (want("waiting")) {
-      await aim(page, {id: "demo-waiting", yaw: 1.9, pitch: 0.45, dist: 20, dz: 0});
-      await still(page, "waiting.png");
-    }
-    if (want("idle-offline")) {
-      await aim(page, {id: "demo-idle", yaw: 1.95, pitch: 0.6, dist: 24, dx: -8});
-      await still(page, "idle-and-offline.png");
-    }
-    if (want("stalled")) {
-      await aim(page, {id: "demo-thinker", yaw: 1.85, pitch: 0.5, dist: 26, dx: -7});
-      await still(page, "stalled-and-editing.png");
-    }
-    if (want("resting")) {
-      await aim(page, {id: "demo-a5", yaw: 2.1, pitch: 0.6, dist: 16, dx: -2, dz: -2});
-      await still(page, "resting-subagent.png");
-    }
-    if (want("panel")) {
-      await aim(page, {id: "demo-lead-b", yaw: 1.8, pitch: 0.6, dist: 30, dx: 8, dz: 3, select: "demo-lead-b"});
-      await still(page, "panel-desktop.png");
-      await aim(page, {select: ""});
-    }
-    if (desk.errors.length) console.error("console errors:\n  " + desk.errors.join("\n  "));
-    await desk.ctx.close();
-    if (want("gif")) {
-      // Its own small context: SwiftShader's cost is per pixel.
-      const g = await open(browser, {viewport: {width: 800, height: 450}});
-      const page = g.page;
-      await drive(page, 0.5, 4);
-      await page.waitForTimeout(1500);
-      await aim(page, {id: "demo-lead-a", yaw: 1.8, pitch: 0.68, dist: 19, dx: 9, dz: 4});
-      // Send one subagent home mid-clip so the GIF shows a locomotive rolling.
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "railway-gif-"));
-      await drive(page, 10, 11, 0.5);
-      await page.waitForTimeout(400);
-      await page.evaluate(() => {
-        const doc = JSON.parse(JSON.stringify(window.__railway.yard.doc));
-        const wren = doc.sessions.find((s) => s.id === "demo-lead-a");
-        const f = wren.followers.find((x) => x.id === "demo-a1");
-        Object.assign(f, {state: "resting", action: "none"});
-        window.__railway.feed(doc);
-      });
-      const fps = 8, secs = 5;
-      for (let i = 0; i < fps * secs; i++) {
-        await page.evaluate((t) => window.__strataKit.drive(t), 11 + i / fps);
-        await shot(page, path.join(dir, `f${String(i).padStart(3, "0")}.png`));
-      }
-      const gif = path.join(OUT, "motion.gif");
-      execFileSync("python3", [path.join(__dirname, "make_gif.py"), dir, gif, String(fps), "800"]);
-      fs.rmSync(dir, {recursive: true, force: true});
-      console.log("wrote motion.gif", Math.round(fs.statSync(gif).size / 1024), "KB");
-      await g.ctx.close();
-    }
-    if (want("phone")) {
-      const ph = await open(browser, {viewport: {width: 390, height: 844}, dpr: 3, mobile: true});
-      await drive(ph.page, 0.5, 4);
-      await ph.page.waitForTimeout(1500);
-      await aim(ph.page, {id: "demo-waiting", yaw: 1.9, pitch: 0.6, dist: 26, dx: 4, dz: 3, select: "demo-waiting"});
-      await still(ph.page, "phone-sheet.png");
-      await ph.ctx.close();
-    }
-  } finally {
-    await browser.close();
-    server.stop();
-  }
-})();
+const DESKTOP_SHOTS = [
+  ["hero", "window.__page.select(null); window.__page.fit(true)"],
+  ["angle-high", "window.__page.fit(true); window.__shots.cam({yaw: 1.55, pitch: 1.2})"],
+  ["angle-low", "window.__page.fit(true); window.__shots.cam({yaw: 2.6, pitch: 0.38, dist: window.__page.kit.cam.dist * 0.6})"],
+  ["lead-and-sidings", "window.__shots.train('demo-lead-b', {yaw: 1.75, pitch: 0.7, dist: 36, dx: 13, dz: 5})"],
+  ["waiting", "window.__shots.train('demo-waiting', {yaw: 1.95, pitch: 0.35, dist: 18, dx: 1, ty: 3})"],
+  ["question", "window.__shots.train('demo-asker', {yaw: 1.95, pitch: 0.3, dist: 13, dx: 1.5, ty: 3.4})"],
+  ["idle-and-offline", "window.__shots.train('demo-idle', {yaw: 1.95, pitch: 0.55, dist: 21, dx: -9, dz: -2.5})"],
+  ["stalled", "window.__shots.train('demo-stalled', {yaw: 1.85, pitch: 0.45, dist: 15, dx: 0, ty: 1.8})"],
+  ["resting-subagent", "window.__shots.train('demo-lead-a/demo-a5', {yaw: 2.1, pitch: 0.6, dist: 16, dx: -2, dz: -2})"],
+  ["panel-desktop", "window.__shots.train('demo-lead-b', {yaw: 1.8, pitch: 0.6, dist: 32, dx: 9, dz: 4}); window.__page.select('demo-lead-b', false)"],
+];
+
+async function desktopStills(browser, server) {
+  const {ctx, page, errors} = await openPage(browser, server, DESKTOP);
+  for (const [name, setup] of DESKTOP_SHOTS) await shoot(page, name, setup);
+  h.assertNoErrors(errors);
+  await ctx.close();
+}
+
+async function phone(browser, server) {
+  if (!want("phone-sheet")) return;
+  const {ctx, page, errors} = await openPage(browser, server, PHONE);
+  await shoot(page, "phone-sheet",
+    "window.__shots.train('demo-waiting', {yaw: 1.9, pitch: 0.6, dist: 24, dx: -2, dz: 3}); window.__page.select('demo-waiting', false)");
+  h.assertNoErrors(errors);
+  await ctx.close();
+}
+
+// The GIF: Wren's yard for five seconds at 8 frames a second. Early on one
+// subagent finishes and rolls to the end of its siding; mid-clip another
+// makes a tool call and blows its whistle.
+async function motionGif(browser, server) {
+  if (!want("motion")) return;
+  const {ctx, page, errors} = await openPage(browser, server, {viewport: {width: 960, height: 540}});
+  await page.evaluate(() => {
+    const base = JSON.parse(JSON.stringify(window.__page.doc));
+    const wren = base.sessions.find((s) => s.id === "demo-lead-a");
+    window.__gif = {
+      finish() { Object.assign(wren.followers.find((f) => f.id === "demo-a1"), {state: "resting", action: "none"});
+        window.__page.feed(JSON.parse(JSON.stringify(base))); },
+      toolCall() { wren.followers.find((f) => f.id === "demo-a2").toolCount += 1;
+        window.__page.feed(JSON.parse(JSON.stringify(base))); },
+    };
+    for (let t = 6.5; t <= 11; t += 0.5) window.__page.kit.drive(t);
+    window.__shots.train("demo-lead-a", {yaw: 1.8, pitch: 0.7, dist: 21, dx: 11, dz: 4});
+  });
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "railway-gif-"));
+  const FPS = 8;
+  await screens.frames(page, tmp, FPS * 5, (i) => {
+    const t = 11 + i / 8;
+    if (i === 2) { window.__page.kit.drive(t); window.__gif.finish(); }
+    if (i === 20) { window.__page.kit.drive(t); window.__gif.toolCall(); }
+    window.__page.kit.drive(t);
+  });
+  screens.gif(tmp, path.join(MEDIA, "motion.gif"), FPS, 800);
+  fs.rmSync(tmp, {recursive: true, force: true});
+  h.assertNoErrors(errors);
+  await ctx.close();
+}
+
+h.run("screenshots", {repo: REPO, port: PORT}, async ({server, browser}) => {
+  fs.mkdirSync(MEDIA, {recursive: true});
+  await desktopStills(browser, server);
+  await phone(browser, server);
+  await motionGif(browser, server);
+});
