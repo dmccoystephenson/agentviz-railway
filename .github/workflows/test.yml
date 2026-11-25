@@ -1,0 +1,16 @@
+name: test
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  unittest:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The engine build (web/railway-engine.*) is committed, so CI needs no emcc.
+      - name: Serve the fixture and check the page, assets and feed
+        run: python3 -m unittest discover -s tests -v

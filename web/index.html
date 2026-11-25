@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Railway yard · agentviz</title>
+<style>
+  :root { color-scheme: dark; --bg: #1b2016; --fg: #ece6d6; --panel: rgba(22, 20, 16, 0.9); --line: rgba(255, 235, 200, 0.14);
+    --green: #2bff6a; --amber: #ffa20f; --red: #ff2a1c; --brass: #d9a040; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+  #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+  .label { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; transition: opacity .2s; }
+  .label.place { font: 700 13px/1 Georgia, "Times New Roman", serif; letter-spacing: .06em; text-transform: uppercase;
+    background: #f1ede2; color: #1d1a14; padding: 4px 10px; border: 2px solid #1d1a14; border-radius: 2px; }
+  .label.name { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--panel); }
+  .label.name.offline { opacity: .6; }
+  .label.name.waiting { background: var(--red); color: #fff; font-size: 14px; padding: 4px 12px;
+    box-shadow: 0 0 0 3px rgba(255, 42, 28, .35); animation: pulse 1s infinite; }
+  .label.branch { font: 600 10px/1 ui-monospace, Menlo, Consolas, monospace; color: var(--brass); background: #1a1a1c;
+    border: 1px solid var(--brass); padding: 2px 5px; border-radius: 2px; }
+  .label.lane { font-size: 11px; color: #f1ede2; background: rgba(90, 30, 20, .85); padding: 1px 6px; border-radius: 3px; }
+  .label.lane.resting { background: rgba(120, 80, 10, .85); }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 9px rgba(255, 42, 28, 0); } }
+  @media (prefers-reduced-motion: reduce) { .label.name.waiting, #needs button { animation: none; } }
+
+  #needs { position: fixed; top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: calc(100% - 24px); }
+  #needs button { font: 600 15px/1 system-ui, sans-serif; color: #fff; background: var(--red); border: 0; border-radius: 999px;
+    padding: 10px 16px; cursor: pointer; animation: pulse 1s infinite; min-height: 44px; }
+  #needs .bell { display: inline-block; margin-right: 6px; animation: ring 1s infinite; }
+  @keyframes ring { 0%, 50%, 100% { transform: rotate(0); } 10%, 30% { transform: rotate(18deg); } 20%, 40% { transform: rotate(-18deg); } }
+
+  #status { position: fixed; left: max(12px, env(safe-area-inset-left)); top: max(12px, env(safe-area-inset-top));
+    font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--panel); }
+
+  #sheet { position: fixed; right: 16px; top: 16px; width: 300px; max-height: calc(100% - 32px); overflow: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-sizing: border-box;
+    backdrop-filter: blur(6px); }
+  #sheet header { display: flex; align-items: center; gap: 8px; }
+  #sheet h2 { margin: 0; font-size: 17px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #sheet h3 { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; opacity: .7; }
+  #sheet .close { background: none; border: 0; color: var(--fg); font-size: 24px; line-height: 1; cursor: pointer;
+    min-width: 44px; min-height: 44px; margin: -10px -10px -10px 0; }
+  #sheet dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 10px 0 0; }
+  #sheet dt { opacity: .6; } #sheet dd { margin: 0; overflow-wrap: anywhere; }
+  #sheet code { color: var(--brass); }
+  #sheet .stall { color: var(--red); }
+  #sheet .ic { display: inline-block; width: 1.4em; }
+  #sheet ul.fl { list-style: none; margin: 0; padding: 0; }
+  #sheet ul.fl button, #sheet button.lead { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
+    background: none; border: 0; color: var(--fg); font: inherit; padding: 6px 2px; cursor: pointer; border-radius: 6px; min-height: 36px; }
+  #sheet button.lead { padding: 0; min-height: 0; text-decoration: underline; }
+  #sheet ul.fl button:hover { background: rgba(255, 255, 255, .06); }
+  .sig { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #222; border: 2px solid #000; flex: none; }
+  .sig.busy { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .sig.idle { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+  .sig.waiting { background: var(--red); box-shadow: 0 0 10px var(--red); animation: blink .5s steps(2) infinite; }
+  .sig.dim { background: #556; }
+  @keyframes blink { 50% { opacity: .2; } }
+
+  @media (max-width: 640px) {
+    #sheet { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 55%; border-radius: 16px 16px 0 0;
+      padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+    #sheet::before { content: ""; display: block; width: 40px; height: 4px; border-radius: 2px; background: var(--line);
+      margin: -4px auto 8px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="view" tabindex="0" role="img" aria-label="Claude Code sessions as a railway yard, drawn by Strata"></canvas>
+<div id="labels" aria-hidden="true"></div>
+<div id="needs" hidden aria-live="assertive"></div>
+<div id="status" hidden></div>
+<aside id="sheet" hidden aria-live="polite"></aside>
+<script src="strata-loader.js"></script>
+<script src="strata-kit.js"></script>
+<script src="railway.js"></script>
+</body>
+</html>
