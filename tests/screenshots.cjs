@@ -69,7 +69,8 @@ async function phone(browser, server) {
   if (!want("phone-sheet")) return;
   const {ctx, page, errors} = await openPage(browser, server, PHONE);
   await shoot(page, "phone-sheet",
-    "window.__shots.train('demo-waiting', {yaw: 1.9, pitch: 0.6, dist: 24, dx: -2, dz: 3}); window.__page.select('demo-waiting', false)");
+    "window.__shots.train('demo-waiting', {yaw: 1.9, pitch: 0.6, dist: 24, dx: -2, dz: 3}); window.__shots.draw(); " +
+    "window.__page.select('demo-waiting', false)");
   h.assertNoErrors(errors);
   await ctx.close();
 }

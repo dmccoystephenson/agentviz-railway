@@ -43,33 +43,47 @@ inline void drawBell(const Loco& L, float sx, float sz, float by, float t) {
     }
 }
 
-// Why it waits, on a white board above the bell, facing the yard: a red "?"
-// for a question, an iron padlock for a permission prompt.
+// Why it waits, on a square white board with a red frame high over the bell,
+// big enough to read from across the yard: a red "?" for a question, an iron
+// padlock for a permission prompt. The sign is painted on both faces.
+inline void drawQuestionMark(float x, float y, float face, float s) {
+    const Rgb ink{0.85f, 0.04f, 0.02f};
+    const float cy = y + 0.2f * s, r = 0.3f * s, w = 0.11f * s;
+    for (int i = 0; i < 9; ++i) {  // the hook: from upper left over the top and down the right
+        const float a0 = 2.7f - i * 0.42f, a1 = 2.7f - (i + 1) * 0.42f;
+        wline(x + std::cos(a0) * r, cy + std::sin(a0) * r, face, x + std::cos(a1) * r, cy + std::sin(a1) * r, face,
+              ink, 8.0f, w);
+    }
+    wline(x, cy - r * 0.95f, face, x, y - 0.22f * s, face, ink, 8.0f, w);
+    ball(x, y - 0.46f * s, face, 0.17f * s, 0.17f * s, 0.06f * s, ink);
+}
+
+inline void drawPadlock(float x, float y, float face, float out, float s) {
+    const Rgb iron{0.06f, 0.06f, 0.07f};
+    const float top = y + 0.08f * s, r = 0.24f * s;
+    for (int i = 0; i < 10; ++i) {  // the shackle: a half circle over the body, with short legs
+        const float a0 = i * kPi / 10, a1 = (i + 1) * kPi / 10;
+        wline(x + std::cos(a0) * r, top + std::sin(a0) * r, face, x + std::cos(a1) * r, top + std::sin(a1) * r, face,
+              iron, 8.0f, 0.1f * s);
+    }
+    for (int side = -1; side <= 1; side += 2)
+        wline(x + side * r, top, face, x + side * r, top - 0.12f * s, face, iron, 8.0f, 0.1f * s);
+    box(x, y - 0.28f * s, face, 0.78f * s, 0.6f * s, 0.06f * s, iron);
+    ball(x, y - 0.22f * s, face + out * 0.04f * s, 0.14f * s, 0.14f * s, 0.04f * s, kBrass);
+    box(x, y - 0.36f * s, face + out * 0.04f * s, 0.06f * s, 0.18f * s, 0.04f * s, kBrass);
+}
+
 inline void drawReasonBoard(const Loco& L, float x, float y, float z) {
     if (L.reason == agentviz::WaitingReason::None) return;
-    const float s = L.s, front = z + 0.07f * s;
-    box(x, y - 0.55f * s, z, 0.06f * s, 0.5f * s, 0.06f * s, kIron);
-    ball(x, y, z, 0.95f * s, 0.95f * s, 0.08f * s, kWhite);
-    glow(x, y, z, 14.0f, 0.6f * s, kWhite, 0.35f);
-    if (L.reason == agentviz::WaitingReason::Question) {
-        const Rgb ink{0.8f, 0.05f, 0.03f};
-        const float cx = x, cy = y + 0.12f * s, r = 0.17f * s;
-        for (int i = 0; i < 8; ++i) {  // the hook: from upper left over the top and down the right
-            const float a0 = 2.6f - i * 0.45f, a1 = 2.6f - (i + 1) * 0.45f;
-            wline(cx + std::cos(a0) * r, cy + std::sin(a0) * r, front, cx + std::cos(a1) * r, cy + std::sin(a1) * r,
-                  front, ink, 3.0f, 0.06f * s);
-        }
-        wline(cx, cy - r * 0.95f, front, cx, cy - 0.27f * s, front, ink, 3.0f, 0.06f * s);
-        ball(cx, y - 0.28f * s, front, 0.1f * s, 0.1f * s, 0.05f * s, ink);
-    } else {
-        const float top = y + 0.0f * s, r = 0.13f * s;
-        for (int i = 0; i < 8; ++i) {  // the shackle: a half circle over the body
-            const float a0 = i * kPi / 8, a1 = (i + 1) * kPi / 8;
-            wline(x + std::cos(a0) * r, top + std::sin(a0) * r, front, x + std::cos(a1) * r, top + std::sin(a1) * r,
-                  front, scale(kIron, 3.0f), 3.0f, 0.05f * s);
-        }
-        box(x, top - 0.15f * s, front, 0.42f * s, 0.32f * s, 0.06f * s, scale(kIron, 2.0f));
-        ball(x, top - 0.13f * s, front + 0.03f * s, 0.08f * s, 0.08f * s, 0.04f * s, kBrass);
+    const float s = L.s, half = 0.08f * s;
+    box(x, y - 1.05f * s, z, 0.08f * s, 0.9f * s, 0.08f * s, kIron);           // the post down to the bell bracket
+    box(x, y, z, 1.75f * s, 1.75f * s, 0.1f * s, kSignalRed);                    // the frame
+    box(x, y, z, 1.5f * s, 1.5f * s, 0.14f * s, kWhite);                         // the face
+    glow(x, y, z, 26.0f, 1.3f * s, kWhite, 0.45f);
+    for (int side = -1; side <= 1; side += 2) {
+        const float face = z + side * half;
+        if (L.reason == agentviz::WaitingReason::Question) drawQuestionMark(x, y, face, s);
+        else drawPadlock(x, y, face, float(side), s);
     }
 }
 
@@ -100,7 +114,7 @@ inline void drawSignal(const Loco& L, float t) {
     if (!waiting) return;
     const float bellY = h + 0.95f * s;
     drawBell(L, sx, sz, bellY, t);
-    drawReasonBoard(L, sx, bellY + 1.15f * s, sz);
+    drawReasonBoard(L, sx, bellY + 1.75f * s, sz);
     drawWaitBeacon(L, t);
 }
 

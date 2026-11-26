@@ -42,8 +42,9 @@ Query options: `?fixture=1` (demo feed), `?fps=1` (frame stats),
 `?quality=0|1|2`.
 
 Drag to orbit, right-drag or two fingers to pan, wheel or pinch to zoom. Tap
-a locomotive for its card (a bottom sheet on a phone; swipe it down or tap
-the cross to close). The red **need you** chip names who is waiting and why
+a locomotive for its card (a bottom sheet on a phone, and the view slides so
+the train you tapped stays above it; swipe it down or tap the cross to
+close). The red **need you** chip names who is waiting and why
 (a question, or a permission prompt), flies the camera to that train and
 cycles through them; the house button recentres; **?** opens the legend. If
 the feed stops answering, a banner says so and the last snapshot stays; with
@@ -60,7 +61,7 @@ no sessions at all, a hint says how to start.
 | Signal **green** | busy | |
 | Signal **amber** | idle (or a resting subagent) | [idle-and-offline](docs/media/idle-and-offline.png) |
 | Signal **flashing red**, bell swinging and ringing, red beam and ground ring, red label and chip | **waiting on you** | [waiting](docs/media/waiting.png) |
-| A white board over the bell: a red **?** / an iron **padlock** | waiting on a question / on a permission prompt | [question](docs/media/question.png) |
+| A red-framed white board high over the bell, painted on both faces: a red **?** / an iron **padlock** | waiting on a question / on a permission prompt | [question](docs/media/question.png) |
 | Signal dark, engine cold and grey, parked inside the shed | offline | [idle-and-offline](docs/media/idle-and-offline.png) |
 | Freight crates craned onto the wagon | `edit` | [lead-and-sidings](docs/media/lead-and-sidings.png) |
 | Dark smoke, wheels and rods turning | `run` | [lead-and-sidings](docs/media/lead-and-sidings.png) |
@@ -85,10 +86,10 @@ red.*
 
 ![Thistle waiting on a permission prompt](docs/media/waiting.png)
 *Waiting on you: Thistle's signal flashes red, the bell swings with rings going out, a red beam and ground ring mark
-the train from anywhere in the yard, and the board over the bell shows a padlock: it wants a permission.*
+the train from anywhere in the yard, and the red-framed board high over the bell shows a big iron padlock: it wants a permission.*
 
 ![Juniper waiting on a question](docs/media/question.png)
-*Juniper asked a question, so its board shows a red "?".*
+*Juniper asked a question, so its board shows a red "?", readable from across the yard.*
 
 ![Lantern idle and Tally in the shed](docs/media/idle-and-offline.png)
 *Idle and offline on the `~` line: Lantern stands with an amber signal and no smoke; Tally sits cold and grey inside
@@ -107,7 +108,9 @@ chip you can tap to jump to it.*
 
 <img src="docs/media/phone-sheet.png" alt="Phone with the bottom sheet open" width="300">
 
-*A phone (390 x 844, DPR 3): Thistle selected, the card as a bottom sheet saying it needs permission.*
+*A phone (390 x 844, DPR 3): Thistle selected, the card as a bottom sheet saying it needs permission; the view has
+slid so Thistle sits above the sheet. On a phone the top bar keeps to one line, and world labels stay out from under
+it.*
 
 ![High angle](docs/media/angle-high.png)
 *From above: the yard ladders and sidings read like a track plan.*

@@ -7,6 +7,10 @@
   const {Yard, layout} = window.Railway;
   const REASON = {question: "has a question", permission: "needs permission"};
   const DEFAULT_YAW = 1.9, DEFAULT_PITCH = 0.72;
+  // A portrait screen is narrow and the yard is about square: look down more
+  // steeply and squarer on, so the yard fills the width instead of a strip.
+  const PORTRAIT_YAW = 1.75, PORTRAIT_PITCH = 0.95, PORTRAIT_ZOOM = 0.8;
+  const PHONE_WIDTH = 640;  // agentviz-hud.css: below this the card is a bottom sheet
   const canvas = document.getElementById("view");
   const yard = new Yard();
   const wire = AgentvizWire.create();
@@ -20,8 +24,9 @@
     const x0 = -9, x1 = target.xEnd, depth = target.zEnd + 12;
     const span = Math.max(x1 - x0, depth * 1.9);
     const aspect = canvas.clientWidth / Math.max(1, canvas.clientHeight);
-    return {tx: (x0 + x1) / 2, ty: 0, tz: target.zEnd * 0.55 + 2, yaw: DEFAULT_YAW, pitch: DEFAULT_PITCH,
-      dist: span * (aspect < 1 ? 1.0 / aspect : 0.62)};
+    const view = {tx: (x0 + x1) / 2, ty: 0, tz: target.zEnd * 0.55 + 2};
+    if (aspect < 1) return Object.assign(view, {yaw: PORTRAIT_YAW, pitch: PORTRAIT_PITCH, dist: span * PORTRAIT_ZOOM / aspect});
+    return Object.assign(view, {yaw: DEFAULT_YAW, pitch: DEFAULT_PITCH, dist: span * 0.62});
   }
   function fit(instant) {
     if (!kit || !yard.places.size) return;
@@ -40,6 +45,20 @@
     if (k >= 1) camAnim = null;
   }
   function focusOn(tr) { flyTo({tx: tr.x, ty: 0, tz: tr.z, dist: Math.min(kit.cam.dist, 26)}); }
+  // On a phone the card is a bottom sheet over the lower half: if it would
+  // cover the train just tapped, slide the view (no zoom, no turn) so the
+  // train sits in the clear upper part of the screen.
+  function keepClearOfSheet(tr) {
+    if (!kit || canvas.clientWidth > PHONE_WIDTH) return;
+    const h = canvas.clientHeight, at = (dx, dz) => kit.project(tr.x + dx, 1.2 * tr.scale, tr.z + dz);
+    const q = at(0, 0);
+    if (!q || q.y < h * 0.42) return;
+    const fx = -Math.cos(kit.cam.yaw), fz = -Math.sin(kit.cam.yaw);  // screen-up on the ground (strata-kit.js)
+    const ahead = at(fx, fz), perUnit = ahead ? q.y - ahead.y : 0;
+    if (perUnit <= 0.5) return;
+    const u = (q.y - h * 0.3) / perUnit;
+    flyTo({tx: kit.cam.tx - fx * u, tz: kit.cam.tz - fz * u});
+  }
 
   /* ------------------------------------------------------------ labels */
   function sessionLabels(tr, items) {
@@ -73,7 +92,60 @@
     }
     for (const tr of yard.trains) (tr.follower ? followerLabels : sessionLabels)(tr, items);
     labels.end();
-    StrataKit.placeLabels(items);
+    placeClear(items);
+  }
+
+  // Keep world labels out from under the HUD: the top bar's chips, the open
+  // card or sheet, the legend. Strata kit 1.4 takes these as placeLabels'
+  // topInset / avoid; until the vendored kit is 1.4 the same rectangles go
+  // in as placed-first stand-in labels (rank -1, sizes preset so nothing is
+  // measured), and a never-hidden label that still reaches into the top band
+  // is moved down to just under it, as 1.4 does.
+  const KIT_AVOIDS = (() => {
+    const [major, minor] = String(StrataKit.version).split(".").map(Number);
+    return major > 1 || (major === 1 && minor >= 4);
+  })();
+  const HUD_PARTS = ".av-bar > :not([hidden]):not(.av-spacer), .av-panel:not([hidden]), .av-legend:not([hidden])";
+  let hudRects = [], topInset = 0, hudReadAt = -1e9;
+  function readHud() {
+    const now = performance.now();
+    if (now - hudReadAt < 250) return;
+    hudReadAt = now;
+    const pad = 4, c = canvas.getBoundingClientRect();
+    hudRects = [...document.querySelectorAll(HUD_PARTS)].map((node) => node.getBoundingClientRect())
+      .filter((r) => r.width > 0 && r.height > 0)
+      .map((r) => ({left: r.left - c.left - pad, top: r.top - c.top - pad, right: r.right - c.left + pad,
+        bottom: r.bottom - c.top + pad}));
+    const bar = document.querySelector(".av-bar");
+    // On a phone the bar spans the width: keep the whole band clear.
+    topInset = bar && canvas.clientWidth <= PHONE_WIDTH ? bar.getBoundingClientRect().bottom - c.top + pad : 0;
+  }
+  const standIns = [];
+  function standIn(i, r) {
+    if (!standIns[i]) { standIns[i] = document.createElement("span"); standIns[i]._skText = ""; }
+    const el = standIns[i];
+    el._skW = r.right - r.left; el._skH = r.bottom - r.top;
+    return {el, q: {x: (r.left + r.right) / 2, y: r.bottom, w: 0}, rank: -1, tries: 1};
+  }
+  function placeClear(items) {
+    readHud();
+    if (KIT_AVOIDS) { StrataKit.placeLabels(items, {topInset, avoid: hudRects}); keepOnScreen(items); return; }
+    const rects = topInset > 0 ? [{left: -1e5, top: -1e5, right: 1e5, bottom: topInset}].concat(hudRects) : hudRects;
+    StrataKit.placeLabels(rects.map((r, i) => standIn(i, r)).concat(items));
+    keepOnScreen(items);
+  }
+  // A never-hidden label (a waiting train's, the selected one's) is pulled
+  // back inside the screen's sides, so "needs you" is never cut off.
+  function keepOnScreen(items) {
+    const w = canvas.clientWidth, margin = 4;
+    for (const it of items) {
+      const el = it.el;
+      if (it.rank > 0 || !el._skShown || !it.q) continue;
+      const bottom = parseFloat(el.style.top);
+      if (!KIT_AVOIDS && bottom - el._skH < topInset) el.style.top = (topInset + el._skH) + "px";
+      const half = el._skW / 2, x = Math.min(Math.max(it.q.x, half + margin), w - half - margin);
+      if (x !== it.q.x) el.style.left = x + "px";
+    }
   }
 
   /* ------------------------------------------------------------ picking + selection */
@@ -93,6 +165,7 @@
     const tr = selectedId && trainById(selectedId);
     if (kit) kit.selected = tr || null;
     if (tr && (how === "list" || how === "waiting")) focusOn(tr);
+    else if (tr) keepClearOfSheet(tr);
   }
 
   const hud = AgentvizHud.create({
