@@ -34,16 +34,9 @@
   .av-label .av-ic { width: 12px; height: 12px; }
   @media (prefers-reduced-motion: reduce) { .av-label.waiting { animation: none; } }
 
-  /* A phone keeps the top bar to one line: the tab already names the page, the
-     away count is the least urgent, and the demo badge shortens to "demo". */
-  @media (max-width: 640px) {
-    .av-bar { flex-wrap: nowrap; gap: 5px; }
-    .av-bar .av-chip { padding: 4px 7px; gap: 4px; flex: none; }
-    .av-bar .av-title, .av-bar > .av-chip:has(> .av-s-offline) { display: none; }
-    .av-bar .av-badge { font-size: 0; gap: 0; }
-    .av-bar .av-badge::after { content: "demo"; font-size: 11px; }
-    .av-bar .av-spacer { flex: 1 1 0; min-width: 0; }
-  }
+  /* The phone bar keeps to one row (oneRow in page.js); the away count is the
+     least urgent, so it gives way. */
+  @media (max-width: 640px) { .av-one-row .av-count-offline { display: none; } }
 
   .av-legend h3 { margin: 10px 0 6px; font-size: 12px; color: var(--av-muted); text-transform: uppercase; letter-spacing: 0.06em; }
   .av-legend h3:first-child { margin-top: 0; }
