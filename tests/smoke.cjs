@@ -4,7 +4,10 @@
 // opens its panel, which says why it waits; a stalled subagent is marked; a
 // subagent on its own branch shows it in the panel; a new tool call pulses;
 // feed strings never become HTML; the empty state and the unreachable banner
-// show; the frame is not flat; no console errors. Saves docs/media/screenshot.png.
+// show; the frame is not flat; no console errors. On a phone (touch, 390 x 844)
+// the top bar stays one line, no world label sits under it, and a tap on a
+// train low on the screen opens the bottom sheet without covering that train.
+// Saves docs/media/screenshot.png.
 //   npm ci && npx playwright install chromium && npm run smoke
 // Every expected count and name is read from the feed document, not hardcoded.
 const path = require("path");
@@ -139,6 +142,42 @@ async function checkUnreachable(page) {
   check(banner && banner.includes("HTTP 503"), "no unreachable banner after failed polls");
 }
 
+async function checkPhone(browser, server) {
+  const {ctx, page, errors} = await h.open(browser, server.base + "/?fixture=1&drive=1",
+    {ready: READY, viewport: {width: 390, height: 844}, dpr: 2, mobile: true});
+  await h.stillAnimations(page);
+  const draw = async (t) => { for (const ms of [250, 250]) { await page.evaluate((x) => window.__page.kit.drive(x), t); await page.waitForTimeout(ms); } };
+  await page.evaluate(() => window.__page.stopPolling());
+  await draw(1);
+  const bar = await page.evaluate(() => {
+    const b = document.querySelector(".av-bar").getBoundingClientRect();
+    const kids = [...document.querySelectorAll(".av-bar > *")].filter((e) => e.offsetWidth > 0)
+      .map((e) => e.getBoundingClientRect());
+    const covered = [...document.querySelectorAll(".av-label:not(.sk-label-off)")].filter((e) => e.style.display !== "none")
+      .filter((e) => { const r = e.getBoundingClientRect(); return r.top < b.bottom && r.bottom > b.top; }).map((e) => e.textContent);
+    return {height: Math.round(b.height), rows: new Set(kids.map((r) => Math.round(r.top + r.height / 2))).size,
+      right: Math.max(...kids.map((r) => r.right)), covered};
+  });
+  console.log("phone bar:", JSON.stringify(bar));
+  check(bar.rows === 1 && bar.right <= 390, "the phone top bar wraps or overflows");
+  check(bar.covered.length === 0, "labels sit under the phone top bar: " + bar.covered.join(", "));
+  // The lowest train on screen: the sheet would cover it unless the view makes room.
+  const low = await page.evaluate(() => window.__strataKit.targets().filter((t) => t.y < innerHeight - 40)
+    .sort((a, b) => b.y - a.y)[0]);
+  check(low && low.y > 844 * 0.45, "no train low enough on the phone screen to test the sheet");
+  await page.touchscreen.tap(low.x, low.y);
+  await draw(1.2);
+  const after = await page.evaluate(() => {
+    const id = window.__strataKit.lastTapId, panel = document.querySelector(".av-panel");
+    const t = window.__strataKit.targets().find((x) => x.id === id);
+    return {id, open: !panel.hidden, top: Math.round(panel.getBoundingClientRect().top), y: t && Math.round(t.y)};
+  });
+  console.log("phone tap:", JSON.stringify(after));
+  check(after.open && after.y != null && after.y < after.top - 20, "the phone sheet covers the train just tapped");
+  h.assertNoErrors(errors);
+  await ctx.close();
+}
+
 h.run("smoke", {repo: REPO, port: PORT}, async ({server, browser}) => {
   const {page, errors} = await h.open(browser, server.base + "/?fixture=1&drive=1&quality=1",
     {ready: READY, viewport: {width: 1600, height: 900}});
@@ -158,5 +197,6 @@ h.run("smoke", {repo: REPO, port: PORT}, async ({server, browser}) => {
     path.join(REPO, "docs/media/screenshot.png"), () => window.__page.kit.drive(4));
   console.log("distinct colours:", await h.assertNotFlat(page, png));
   h.assertNoErrors(errors);
+  await checkPhone(browser, server);
   await checkUnreachable(page);  // last: the failed fetches log console errors of their own
 });
